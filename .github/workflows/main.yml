@@ -1,0 +1,93 @@
+name: Build WinDivert
+
+on:
+  push:
+    branches: [ "main", "master" ] # Запускать при пуше в main или master
+  pull_request:
+    branches: [ "main", "master" ] # Запускать при pull request в main или master
+  workflow_dispatch: # Позволяет запускать вручную
+
+jobs:
+  build:
+    runs-on: windows-latest # Использовать последнюю версию Windows
+
+    strategy:
+      matrix:
+        # Можно добавить разные конфигурации сборки, если необходимо
+        # configuration: [Debug, Release]
+        # platform: [x86, x64]
+        # Для простоты, пока собираем только одну конфигурацию
+        configuration: [Release]
+        platform: [x64] # WinDivert драйвер в основном используется в 64-битных системах
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive' # Если у WinDivert есть подмодули (на всякий случай)
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v2
+      # По умолчанию использует последнюю версию MSBuild, что должно быть достаточно
+
+    - name: Setup Visual Studio Developer Command Prompt
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: ${{ matrix.platform }} # Устанавливаем архитектуру для командной строки разработчика
+
+    # Шаг для сборки драйвера (если используется WDK/EWDK)
+    # WinDivert, начиная с версии 2.0, использует стандартные средства сборки Visual Studio
+    # для драйвера, но для старых версий или специфичных конфигураций может понадобиться WDK.
+    # Этот шаг пока закомментирован, т.к. современный WinDivert собирается через .sln
+
+    # - name: Build Driver (Example, if needed separately with WDK)
+    #   shell: cmd
+    #   run: |
+    #     cd driver/
+    #     msbuild /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} WinDivert.sln
+    #     # Или другая команда для сборки драйвера, если она отличается
+
+    - name: Build WinDivert Solution
+      shell: cmd # Используем cmd, так как msvc-dev-cmd настраивает окружение для него
+      run: |
+        echo "Building WinDivert solution for ${{ matrix.platform }} ${{ matrix.configuration }}"
+        msbuild.exe WinDivert.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /m /verbosity:minimal
+
+    # Опционально: Упаковка артефактов
+    - name: Package artifacts
+      if: success() # Запускать только если сборка успешна
+      shell: pwsh # Используем PowerShell для удобства работы с путями
+      run: |
+        $artifactDir = "WinDivert-build-${{ matrix.platform }}-${{ matrix.configuration }}"
+        New-Item -ItemType Directory -Force -Path $artifactDir
+
+        # Копируем основные артефакты
+        # Пути могут отличаться в зависимости от структуры проекта и вывода MSBuild
+        # Проверьте пути к WinDivert.dll, WinDivert.lib, WinDivert.sys и примерам
+        $basePath = "${{ github.workspace }}\${{ matrix.platform }}\${{ matrix.configuration }}"
+
+        Copy-Item -Path "$basePath\WinDivert.dll" -Destination "$artifactDir\" -ErrorAction SilentlyContinue
+        Copy-Item -Path "$basePath\WinDivert.lib" -Destination "$artifactDir\" -ErrorAction SilentlyContinue
+        Copy-Item -Path "$basePath\WinDivert.sys" -Destination "$artifactDir\" -ErrorAction SilentlyContinue # Путь может быть другим для драйвера
+
+        # Если драйвер собирается в отдельной папке:
+        # Copy-Item -Path "${{ github.workspace }}\driver\${{ matrix.platform }}\${{ matrix.configuration }}\WinDivert.sys" -Destination "$artifactDir\" -ErrorAction SilentlyContinue
+
+        # Копирование примеров (если они собираются)
+        # Например, если примеры находятся в папке 'examples' внутри папки конфигурации
+        if (Test-Path "$basePath\examples") {
+          Copy-Item -Path "$basePath\examples\*.exe" -Destination "$artifactDir\" -ErrorAction SilentlyContinue
+        }
+        # Или если примеры в корне проекта после сборки
+        # Get-ChildItem -Path "${{ github.workspace }}\${{ matrix.platform }}\${{ matrix.configuration }}" -Filter "*.exe" | Where-Object {$_.Name -like "netdump*" -or $_.Name -like "streamdump*"} | Copy-Item -Destination "$artifactDir\" -ErrorAction SilentlyContinue
+
+        # Запаковываем в архив
+        Compress-Archive -Path "$artifactDir\*" -DestinationPath "${{ github.workspace }}\WinDivert-build-${{ matrix.platform }}-${{ matrix.configuration }}.zip"
+
+    - name: Upload build artifacts
+      if: success() # Запускать только если сборка успешна
+      uses: actions/upload-artifact@v4
+      with:
+        name: WinDivert-${{ matrix.platform }}-${{ matrix.configuration }}
+        path: ${{ github.workspace }}/WinDivert-build-${{ matrix.platform }}-${{ matrix.configuration }}.zip
+        retention-days: 7 # Хранить артефакты 7 дней
