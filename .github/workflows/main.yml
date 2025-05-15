@@ -1,93 +1,148 @@
-name: Build WinDivert
+name: Build WinDivert (MSVC & MinGW)
 
 on:
   push:
-    branches: [ "main", "master" ] # Запускать при пуше в main или master
+    branches: [ "main", "master" ]
   pull_request:
-    branches: [ "main", "master" ] # Запускать при pull request в main или master
-  workflow_dispatch: # Позволяет запускать вручную
+    branches: [ "main", "master" ]
+  workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: windows-latest # Использовать последнюю версию Windows
+  build_msvc:
+    runs-on: windows-latest
+    name: Build with MSVC
 
-    strategy:
-      matrix:
-        # Можно добавить разные конфигурации сборки, если необходимо
-        # configuration: [Debug, Release]
-        # platform: [x86, x64]
-        # Для простоты, пока собираем только одну конфигурацию
-        configuration: [Release]
-        platform: [x64] # WinDivert драйвер в основном используется в 64-битных системах
+    outputs:
+      msvc_artifact_name: msvc_install_dir # Имя артефакта для передачи в следующую задачу
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        submodules: 'recursive' # Если у WinDivert есть подмодули (на всякий случай)
+        submodules: 'recursive'
 
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v2
-      # По умолчанию использует последнюю версию MSBuild, что должно быть достаточно
 
-    - name: Setup Visual Studio Developer Command Prompt
+    - name: List files in workspace (Debug for WinDivert.sln)
+      shell: cmd
+      run: |
+        echo "Current directory: %CD%"
+        echo "Listing files in workspace root:"
+        dir "${{ github.workspace }}"
+
+    - name: Create MSVC install directory structure
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path "install"
+        New-Item -ItemType Directory -Force -Path "install/MSVC"
+        New-Item -ItemType Directory -Force -Path "install/MSVC/amd64"
+        New-Item -ItemType Directory -Force -Path "install/MSVC/i386"
+        echo "Created install/MSVC/amd64 and install/MSVC/i386"
+
+    # --- Build for x64 ---
+    - name: Setup MSVC Developer Command Prompt for x64
       uses: ilammy/msvc-dev-cmd@v1
       with:
-        arch: ${{ matrix.platform }} # Устанавливаем архитектуру для командной строки разработчика
+        arch: x64
 
-    # Шаг для сборки драйвера (если используется WDK/EWDK)
-    # WinDivert, начиная с версии 2.0, использует стандартные средства сборки Visual Studio
-    # для драйвера, но для старых версий или специфичных конфигураций может понадобиться WDK.
-    # Этот шаг пока закомментирован, т.к. современный WinDivert собирается через .sln
-
-    # - name: Build Driver (Example, if needed separately with WDK)
-    #   shell: cmd
-    #   run: |
-    #     cd driver/
-    #     msbuild /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} WinDivert.sln
-    #     # Или другая команда для сборки драйвера, если она отличается
-
-    - name: Build WinDivert Solution
-      shell: cmd # Используем cmd, так как msvc-dev-cmd настраивает окружение для него
+    - name: Build WinDivert Solution (Release x64)
+      shell: cmd
       run: |
-        echo "Building WinDivert solution for ${{ matrix.platform }} ${{ matrix.configuration }}"
-        msbuild.exe WinDivert.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /m /verbosity:minimal
+        echo "Building WinDivert solution for x64 Release"
+        msbuild.exe WinDivert.sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
 
-    # Опционально: Упаковка артефактов
-    - name: Package artifacts
-      if: success() # Запускать только если сборка успешна
-      shell: pwsh # Используем PowerShell для удобства работы с путями
+    - name: Copy x64 MSVC artifacts to install directory
+      shell: pwsh
       run: |
-        $artifactDir = "WinDivert-build-${{ matrix.platform }}-${{ matrix.configuration }}"
-        New-Item -ItemType Directory -Force -Path $artifactDir
+        Copy-Item -Path "x64/Release/WinDivert.dll" -Destination "install/MSVC/amd64/WinDivert.dll" -ErrorAction Stop
+        Copy-Item -Path "x64/Release/WinDivert.lib" -Destination "install/MSVC/amd64/WinDivert.lib" -ErrorAction Stop
+        Copy-Item -Path "x64/Release/WinDivert64.sys" -Destination "install/MSVC/amd64/WinDivert64.sys" -ErrorAction Stop
+        # Опционально: копировать примеры .exe, если они собираются и нужны
+        Get-ChildItem -Path "x64/Release/*.exe" -Exclude "vc*.exe" | Copy-Item -Destination "install/MSVC/amd64/" -ErrorAction SilentlyContinue
+        echo "Copied x64 artifacts to install/MSVC/amd64/"
 
-        # Копируем основные артефакты
-        # Пути могут отличаться в зависимости от структуры проекта и вывода MSBuild
-        # Проверьте пути к WinDivert.dll, WinDivert.lib, WinDivert.sys и примерам
-        $basePath = "${{ github.workspace }}\${{ matrix.platform }}\${{ matrix.configuration }}"
+    # --- Build for Win32 (x86) ---
+    - name: Setup MSVC Developer Command Prompt for x86
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x86 # 'x86' для целевой платформы Win32
 
-        Copy-Item -Path "$basePath\WinDivert.dll" -Destination "$artifactDir\" -ErrorAction SilentlyContinue
-        Copy-Item -Path "$basePath\WinDivert.lib" -Destination "$artifactDir\" -ErrorAction SilentlyContinue
-        Copy-Item -Path "$basePath\WinDivert.sys" -Destination "$artifactDir\" -ErrorAction SilentlyContinue # Путь может быть другим для драйвера
+    - name: Build WinDivert Solution (Release Win32)
+      shell: cmd
+      run: |
+        echo "Building WinDivert solution for Win32 Release"
+        msbuild.exe WinDivert.sln /p:Configuration=Release /p:Platform=Win32 /m /verbosity:minimal
+        # Замечание: MSBuild использует 'Win32' для 32-битной платформы, а не 'x86' в данном контексте
 
-        # Если драйвер собирается в отдельной папке:
-        # Copy-Item -Path "${{ github.workspace }}\driver\${{ matrix.platform }}\${{ matrix.configuration }}\WinDivert.sys" -Destination "$artifactDir\" -ErrorAction SilentlyContinue
+    - name: Copy Win32 MSVC artifacts to install directory
+      shell: pwsh
+      run: |
+        Copy-Item -Path "Win32/Release/WinDivert.dll" -Destination "install/MSVC/i386/WinDivert.dll" -ErrorAction Stop
+        Copy-Item -Path "Win32/Release/WinDivert.lib" -Destination "install/MSVC/i386/WinDivert.lib" -ErrorAction Stop
+        Copy-Item -Path "Win32/Release/WinDivert32.sys" -Destination "install/MSVC/i386/WinDivert32.sys" -ErrorAction Stop
+        # Опционально: копировать примеры .exe
+        Get-ChildItem -Path "Win32/Release/*.exe" -Exclude "vc*.exe" | Copy-Item -Destination "install/MSVC/i386/" -ErrorAction SilentlyContinue
+        echo "Copied Win32 artifacts to install/MSVC/i386/"
 
-        # Копирование примеров (если они собираются)
-        # Например, если примеры находятся в папке 'examples' внутри папки конфигурации
-        if (Test-Path "$basePath\examples") {
-          Copy-Item -Path "$basePath\examples\*.exe" -Destination "$artifactDir\" -ErrorAction SilentlyContinue
-        }
-        # Или если примеры в корне проекта после сборки
-        # Get-ChildItem -Path "${{ github.workspace }}\${{ matrix.platform }}\${{ matrix.configuration }}" -Filter "*.exe" | Where-Object {$_.Name -like "netdump*" -or $_.Name -like "streamdump*"} | Copy-Item -Destination "$artifactDir\" -ErrorAction SilentlyContinue
-
-        # Запаковываем в архив
-        Compress-Archive -Path "$artifactDir\*" -DestinationPath "${{ github.workspace }}\WinDivert-build-${{ matrix.platform }}-${{ matrix.configuration }}.zip"
-
-    - name: Upload build artifacts
-      if: success() # Запускать только если сборка успешна
+    - name: Upload MSVC build artifacts (for MinGW job)
       uses: actions/upload-artifact@v4
       with:
-        name: WinDivert-${{ matrix.platform }}-${{ matrix.configuration }}
-        path: ${{ github.workspace }}/WinDivert-build-${{ matrix.platform }}-${{ matrix.configuration }}.zip
-        retention-days: 7 # Хранить артефакты 7 дней
+        name: ${{ jobs.build_msvc.outputs.msvc_artifact_name }} # Используем output для имени
+        path: install/MSVC/
+        retention-days: 7
+
+  build_mingw:
+    runs-on: ubuntu-latest
+    name: Build with MinGW
+    needs: build_msvc # Зависит от успешного завершения сборки MSVC
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+
+    - name: Download MSVC artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ needs.build_msvc.outputs.msvc_artifact_name }} # Скачиваем артефакт по имени из предыдущей задачи
+        path: install/ # Распаковываем содержимое msvc_install_dir (т.е. папки MSVC) в install/
+
+    - name: List downloaded MSVC artifacts (Debug)
+      run: |
+        echo "Listing downloaded MSVC artifacts in ./install/MSVC:"
+        ls -R install/MSVC || echo "Directory install/MSVC not found or ls failed"
+
+    - name: Install MinGW-w64 and tree
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq mingw-w64 tree
+
+    - name: Make mingw-build.sh executable
+      run: chmod +x mingw-build.sh # Убедитесь, что mingw-build.sh в корне репозитория
+
+    - name: Run mingw-build.sh
+      run: ./mingw-build.sh
+      # Скрипт должен создавать файлы в install/MINGW/i386 и install/MINGW/amd64
+
+    - name: List MinGW build output (Debug)
+      run: |
+        echo "Listing MinGW build output in ./install/MINGW:"
+        tree install/MINGW || echo "Directory install/MINGW not found or tree command failed"
+
+    - name: Upload MinGW 32-bit artifacts
+      if: success() # Загружать только если сборка успешна
+      uses: actions/upload-artifact@v4
+      with:
+        name: WinDivert-MinGW-i386
+        path: install/MINGW/i386/
+        retention-days: 7
+
+    - name: Upload MinGW 64-bit artifacts
+      if: success() # Загружать только если сборка успешна
+      uses: actions/upload-artifact@v4
+      with:
+        name: WinDivert-MinGW-amd64
+        path: install/MINGW/amd64/
+        retention-days: 7
