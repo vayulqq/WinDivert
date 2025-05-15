@@ -1,0 +1,71 @@
+name: Build WinDivert
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    # Checkout the repository
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # Set up Visual Studio environment
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+
+    # Install Visual Studio Build Tools with C++ components
+    - name: Install Visual Studio Build Tools
+      run: |
+        choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+      env:
+        ChocolateyInstall: C:\ProgramData\chocolatey
+
+    # Configure Developer Command Prompt environment
+    - name: Setup Developer Command Prompt
+      run: |
+        call "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64
+        echo "MSBuild environment configured"
+
+    # Build WinDivert for 32-bit and 64-bit
+    - name: Build WinDivert
+      run: |
+        msbuild sys\windivert.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:SignMode=Off /p:OutDir=..\install\MSVC\i386\ /p:AssemblyName=WinDivert32
+        msbuild sys\windivert.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SignMode=Off /p:OutDir=..\install\MSVC\amd64\ /p:AssemblyName=WinDivert64
+        msbuild dll\windivert.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\install\MSVC\i386\
+        move dll\WinDivert.lib install\MSVC\i386\
+        msbuild dll\windivert.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\install\MSVC\amd64\
+        move dll\WinDivert.lib install\MSVC\amd64\
+        msbuild examples\flowtrack\flowtrack.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\flowtrack\flowtrack.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild examples\netdump\netdump.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\netdump\netdump.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild examples\netfilter\netfilter.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\netfilter\netfilter.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild examples\passthru\passthru.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\passthru\passthru.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild examples\socketdump\socketdump.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\socketdump\socketdump.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild examples\streamdump\streamdump.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\streamdump\streamdump.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild examples\webfilter\webfilter.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\webfilter\webfilter.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild examples\windivertctl\windivertctl.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\windivertctl\windivertctl.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild test\test.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\install\MSVC\i386\
+        msbuild test\test.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\install\MSVC\amd64\
+
+    # Upload artifacts
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: WinDivert-Build
+        path: |
+          install\MSVC\i386\*
+          install\MSVC\amd64\*
+        retention-days: 7
