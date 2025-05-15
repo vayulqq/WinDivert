@@ -1,148 +1,71 @@
-name: Build WinDivert (MSVC & MinGW)
+name: Build WinDivert
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ main ]
   pull_request:
-    branches: [ "main", "master" ]
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
-  build_msvc:
+  build:
     runs-on: windows-latest
-    name: Build with MSVC
-
-    outputs:
-      msvc_artifact_name: msvc_install_dir # Имя артефакта для передачи в следующую задачу
 
     steps:
-    - name: Checkout repository
+    # Checkout the repository
+    - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        submodules: 'recursive'
 
-    - name: Add MSBuild to PATH
+    # Set up Visual Studio environment
+    - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
 
-    - name: List files in workspace (Debug for WinDivert.sln)
-      shell: cmd
+    # Install Visual Studio Build Tools with C++ components
+    - name: Install Visual Studio Build Tools
       run: |
-        echo "Current directory: %CD%"
-        echo "Listing files in workspace root:"
-        dir "${{ github.workspace }}"
+        choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+      env:
+        ChocolateyInstall: C:\ProgramData\chocolatey
 
-    - name: Create MSVC install directory structure
-      shell: pwsh
+    # Configure Developer Command Prompt environment
+    - name: Setup Developer Command Prompt
       run: |
-        New-Item -ItemType Directory -Force -Path "install"
-        New-Item -ItemType Directory -Force -Path "install/MSVC"
-        New-Item -ItemType Directory -Force -Path "install/MSVC/amd64"
-        New-Item -ItemType Directory -Force -Path "install/MSVC/i386"
-        echo "Created install/MSVC/amd64 and install/MSVC/i386"
+        call "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64
+        echo "MSBuild environment configured"
 
-    # --- Build for x64 ---
-    - name: Setup MSVC Developer Command Prompt for x64
-      uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: x64
-
-    - name: Build WinDivert Solution (Release x64)
-      shell: cmd
+    # Build WinDivert for 32-bit and 64-bit
+    - name: Build WinDivert
       run: |
-        echo "Building WinDivert solution for x64 Release"
-        msbuild.exe WinDivert.sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
+        msbuild sys\windivert.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:SignMode=Off /p:OutDir=..\install\MSVC\i386\ /p:AssemblyName=WinDivert32
+        msbuild sys\windivert.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SignMode=Off /p:OutDir=..\install\MSVC\amd64\ /p:AssemblyName=WinDivert64
+        msbuild dll\windivert.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\install\MSVC\i386\
+        move dll\WinDivert.lib install\MSVC\i386\
+        msbuild dll\windivert.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\install\MSVC\amd64\
+        move dll\WinDivert.lib install\MSVC\amd64\
+        msbuild examples\flowtrack\flowtrack.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\flowtrack\flowtrack.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild examples\netdump\netdump.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\netdump\netdump.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild examples\netfilter\netfilter.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\netfilter\netfilter.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild examples\passthru\passthru.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\passthru\passthru.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild examples\socketdump\socketdump.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\socketdump\socketdump.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild examples\streamdump\streamdump.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\streamdump\streamdump.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild examples\webfilter\webfilter.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\webfilter\webfilter.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild examples\windivertctl\windivertctl.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\..\install\MSVC\i386\
+        msbuild examples\windivertctl\windivertctl.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\..\install\MSVC\amd64\
+        msbuild test\test.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir=..\install\MSVC\i386\
+        msbuild test\test.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=..\install\MSVC\amd64\
 
-    - name: Copy x64 MSVC artifacts to install directory
-      shell: pwsh
-      run: |
-        Copy-Item -Path "x64/Release/WinDivert.dll" -Destination "install/MSVC/amd64/WinDivert.dll" -ErrorAction Stop
-        Copy-Item -Path "x64/Release/WinDivert.lib" -Destination "install/MSVC/amd64/WinDivert.lib" -ErrorAction Stop
-        Copy-Item -Path "x64/Release/WinDivert64.sys" -Destination "install/MSVC/amd64/WinDivert64.sys" -ErrorAction Stop
-        # Опционально: копировать примеры .exe, если они собираются и нужны
-        Get-ChildItem -Path "x64/Release/*.exe" -Exclude "vc*.exe" | Copy-Item -Destination "install/MSVC/amd64/" -ErrorAction SilentlyContinue
-        echo "Copied x64 artifacts to install/MSVC/amd64/"
-
-    # --- Build for Win32 (x86) ---
-    - name: Setup MSVC Developer Command Prompt for x86
-      uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: x86 # 'x86' для целевой платформы Win32
-
-    - name: Build WinDivert Solution (Release Win32)
-      shell: cmd
-      run: |
-        echo "Building WinDivert solution for Win32 Release"
-        msbuild.exe WinDivert.sln /p:Configuration=Release /p:Platform=Win32 /m /verbosity:minimal
-        # Замечание: MSBuild использует 'Win32' для 32-битной платформы, а не 'x86' в данном контексте
-
-    - name: Copy Win32 MSVC artifacts to install directory
-      shell: pwsh
-      run: |
-        Copy-Item -Path "Win32/Release/WinDivert.dll" -Destination "install/MSVC/i386/WinDivert.dll" -ErrorAction Stop
-        Copy-Item -Path "Win32/Release/WinDivert.lib" -Destination "install/MSVC/i386/WinDivert.lib" -ErrorAction Stop
-        Copy-Item -Path "Win32/Release/WinDivert32.sys" -Destination "install/MSVC/i386/WinDivert32.sys" -ErrorAction Stop
-        # Опционально: копировать примеры .exe
-        Get-ChildItem -Path "Win32/Release/*.exe" -Exclude "vc*.exe" | Copy-Item -Destination "install/MSVC/i386/" -ErrorAction SilentlyContinue
-        echo "Copied Win32 artifacts to install/MSVC/i386/"
-
-    - name: Upload MSVC build artifacts (for MinGW job)
+    # Upload artifacts
+    - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ jobs.build_msvc.outputs.msvc_artifact_name }} # Используем output для имени
-        path: install/MSVC/
-        retention-days: 7
-
-  build_mingw:
-    runs-on: ubuntu-latest
-    name: Build with MinGW
-    needs: build_msvc # Зависит от успешного завершения сборки MSVC
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        submodules: 'recursive'
-
-    - name: Download MSVC artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: ${{ needs.build_msvc.outputs.msvc_artifact_name }} # Скачиваем артефакт по имени из предыдущей задачи
-        path: install/ # Распаковываем содержимое msvc_install_dir (т.е. папки MSVC) в install/
-
-    - name: List downloaded MSVC artifacts (Debug)
-      run: |
-        echo "Listing downloaded MSVC artifacts in ./install/MSVC:"
-        ls -R install/MSVC || echo "Directory install/MSVC not found or ls failed"
-
-    - name: Install MinGW-w64 and tree
-      run: |
-        sudo apt-get update -qq
-        sudo apt-get install -y -qq mingw-w64 tree
-
-    - name: Make mingw-build.sh executable
-      run: chmod +x mingw-build.sh # Убедитесь, что mingw-build.sh в корне репозитория
-
-    - name: Run mingw-build.sh
-      run: ./mingw-build.sh
-      # Скрипт должен создавать файлы в install/MINGW/i386 и install/MINGW/amd64
-
-    - name: List MinGW build output (Debug)
-      run: |
-        echo "Listing MinGW build output in ./install/MINGW:"
-        tree install/MINGW || echo "Directory install/MINGW not found or tree command failed"
-
-    - name: Upload MinGW 32-bit artifacts
-      if: success() # Загружать только если сборка успешна
-      uses: actions/upload-artifact@v4
-      with:
-        name: WinDivert-MinGW-i386
-        path: install/MINGW/i386/
-        retention-days: 7
-
-    - name: Upload MinGW 64-bit artifacts
-      if: success() # Загружать только если сборка успешна
-      uses: actions/upload-artifact@v4
-      with:
-        name: WinDivert-MinGW-amd64
-        path: install/MINGW/amd64/
+        name: WinDivert-Build
+        path: |
+          install\MSVC\i386\*
+          install\MSVC\amd64\*
         retention-days: 7
